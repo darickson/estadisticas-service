@@ -8,19 +8,15 @@ env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
   EKS_CLUSTER: ${{ secrets.EKS_CLUSTER }}
-  IMAGE_NAME: apuestas-service
 
 jobs:
   build-push-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout del código
         uses: actions/checkout@v4
 
-      - name: Configurar credenciales de AWS (temporales - AWS Academy)
+      - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -32,23 +28,22 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Definir tags de la imagen (vX.Y.Z, latest, sha)
+      - name: Definir tags
         id: tags
         run: |
-          SHA_TAG=${GITHUB_SHA::7}
-          VERSION_TAG="v1.0.${{ github.run_number }}"
-          echo "sha_tag=${SHA_TAG}" >> "$GITHUB_OUTPUT"
-          echo "version_tag=${VERSION_TAG}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "version_tag=v1.0.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Build de la imagen Docker
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          docker build -t "$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.version_tag }}" \
-                       -t "$REGISTRY/$ECR_REPOSITORY:latest" \
-                       -t "$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.sha_tag }}" .
+          docker build \
+            -t "$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.version_tag }}" \
+            -t "$REGISTRY/$ECR_REPOSITORY:latest" \
+            -t "$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.sha_tag }}" .
 
-      - name: Push de la imagen a Amazon ECR (3 tags)
+      - name: Push a Amazon ECR
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
@@ -59,14 +54,13 @@ jobs:
       - name: Instalar kubectl
         uses: azure/setup-kubectl@v4
 
-      - name: Configurar kubeconfig contra el clúster EKS
-        run: |
-          aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
+      - name: Configurar kubeconfig
+        run: aws eks update-kubeconfig --name "$EKS_CLUSTER" --region "$AWS_REGION"
 
-      - name: Deploy en EKS (actualiza la imagen del Deployment)
+      - name: Deploy en EKS
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
         run: |
-          kubectl set image deployment/apuestas-service \
-            apuestas-service="$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.sha_tag }}"
-          kubectl rollout status deployment/apuestas-service --timeout=120s
+          kubectl set image deployment/bonos-service \
+            bonos-service="$REGISTRY/$ECR_REPOSITORY:${{ steps.tags.outputs.sha_tag }}"
+          kubectl rollout status deployment/bonos-service --timeout=120s
